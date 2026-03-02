@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from adminapp.models import Product
+from adminapp.models import Product,Restaurant
 
 # Create your models here.
 # class SignUp(models.Model):
@@ -32,9 +32,17 @@ class WishlistItem(models.Model):
     product = models.ForeignKey(Product,on_delete=models.CASCADE)
 
 class Review(models.Model):
-    user=models.OneToOneField(User,on_delete=models.CASCADE)
+    user=models.ForeignKey(User,on_delete=models.CASCADE)
     product = models.ForeignKey(Product,on_delete=models.CASCADE)
     Rating=models.PositiveIntegerField()
     Review=models.CharField(max_length=255)
 
+
+class RestaurantReview(models.Model):
     
+    user=models.ForeignKey(User,on_delete=models.CASCADE,null=True)
+    restaurant = models.ForeignKey(Restaurant,on_delete=models.CASCADE)
+    Rating=models.PositiveIntegerField()
+    Review=models.CharField(max_length=255)
+    
+#

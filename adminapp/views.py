@@ -3,8 +3,20 @@ from django.shortcuts import get_object_or_404, render
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from adminapp.models import Coupon, Product, Restaurant
+from django.contrib.auth.models import User
+from rest_framework.decorators import permission_classes,api_view
+
+from rest_framework.permissions import IsAuthenticated
+from userapp.models import Profile, RestaurantReview, Review
 
 
+
+
+
+
+#.......................................RESTAURANT.................................
+
+#ADD RESTAURANT
 
 @csrf_exempt      #This decorator allows POST requests from Postman, mobile apps, or frontend APIs.
 def Add_Restaurant(request):
@@ -41,8 +53,7 @@ def Add_Restaurant(request):
         return HttpResponse("method not allowed",405)    #Method Not Allowed:::::This API only supports POST requests.
 
 
-#to view the table data as list
-
+#VIEW RESTAURANT
 
 @csrf_exempt
 def View_restaurants(request):
@@ -66,7 +77,7 @@ def View_restaurants(request):
     return JsonResponse(new_list, safe=False)  #to show as list
 
 
-#view SINGLE RESTAURANT
+#VIEW SINGLE RESTAURANT
 
 
 def view_single_restaurant(request,id):
@@ -103,7 +114,7 @@ def View_Single_restaurant(request,id):
     }
     return JsonResponse(new_item)      
 
-
+#REMOVE RESTAURANT
 
 @csrf_exempt
 def Remove_restaurant(request,id):
@@ -112,7 +123,7 @@ def Remove_restaurant(request,id):
         remove.delete()
         return JsonResponse({'message':'successfully created'})
 
-#update item
+#uPDATE RESTAURANT
 
 @csrf_exempt
 def update_restaurant(request,id):
@@ -142,11 +153,58 @@ def update_restaurant(request,id):
         temp.Contact=request.POST.get("contact",temp.Contact) 
         temp.Email=request.POST.get("email",temp.Email) 
         temp.save()
-        return JsonResponse({'message':'successfully updated'},status=200) 
-    
+        return JsonResponse({'message':'successfully updated'},status=200)
 
-#PRODUCT
 
+#VIEW USERS
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_users(request):
+    users = User.objects.all()
+    data = []
+    for u in users:
+        try:
+            phone = u.profile.Phone
+            address = u.profile.Address
+            zipcode = u.profile.Zipcode
+        except Profile.DoesNotExist:
+            phone = ""
+            address = ""
+            zipcode = ""
+
+        data.append({
+            "fname": u.first_name,
+            "lname": u.last_name,
+            "mail": u.email,
+            "phone": phone,
+            "address": address,
+            "zipcode": zipcode,
+        })
+
+    return JsonResponse(data, safe=False)
+
+# @api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+# def view_users(request):
+#     user=User.objects.all()
+#     # profile=Profile.objects.all()
+#     data=[]
+#     for i in user:
+#          data.append({
+#               "fname":i.first_name,
+#               "lname":i.last_name,
+#               "mail":i.email,
+#               "phone":i.profile.phone,
+#               "address":i.profile.address,
+#               "zipcode":i.profile.zipcode,
+#          })
+#     return JsonResponse(data,safe=False)
+     
+
+
+#.................................PRODUCT..................................
+
+#ADD PRODUCT
 
 @csrf_exempt   
 def Add_Product(request,id):
@@ -167,7 +225,7 @@ def Add_Product(request,id):
         return HttpResponse("method not allowed",405) 
 
 
-#view product
+#VIEW PRODUCT
 
 @csrf_exempt
 def view_product(request):
@@ -181,7 +239,7 @@ def view_product(request):
           })
      return JsonResponse(empty_list,safe=False)
 
-#view
+#VIEW SINGLE PRODUCT
 
 @csrf_exempt
 def view_single_product(request,id):
@@ -196,7 +254,7 @@ def view_single_product(request,id):
           })
      return JsonResponse(empty_list,safe=False)
      
-     
+#REMOVE PRODUCT  
      
 @csrf_exempt
 def remove_product(request,id):
@@ -205,8 +263,7 @@ def remove_product(request,id):
           remove_product.delete()
      return JsonResponse({'message':'Successfully deleted'})
 
-#updation
-
+#UPDATE PRODUCT
 
 @csrf_exempt
 def update_product(request, id):
@@ -227,50 +284,6 @@ def update_product(request, id):
         temp.price = request.POST.get("price", temp.price)
         temp.save()
         return JsonResponse({'message': 'updated successfully'})
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -332,3 +345,85 @@ def Update_coupon(request,id):
           temp.save()
           return JsonResponse({'message':'updated successfully'})
      
+
+#.........................................REVIEWS................................
+
+#VIEW REVIEW
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_review(request):
+    review=Review.objects.all()
+    data=[]
+    for i in review:
+         data.append({
+         "user":i.user.username,
+          "product":i.product.id,
+         "rating":i.Rating,
+         "review":i.Review   
+         })
+    return JsonResponse(data,safe=False)
+
+#FILTER REVIEWS
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def filtering_rating(request):
+    query=request.GET.get('q')
+    min=request.GET.get('min')
+    max=request.GET.get('max')
+    try:
+     restaurant=Restaurant.objects.get(id=query)
+    except Restaurant.DoesNotExist:
+        return JsonResponse({"message":"Restaurant not found"})
+    
+    reviews=RestaurantReview.objects.filter(restaurant=restaurant)
+
+    if min:
+        rating=reviews.filter(Rating__gte=min)
+    if max:
+        rating=reviews.filter(Rating__gte=max)
+    if not reviews:
+        return JsonResponse({"message":"Review not found"})
+    data=[]
+    for i in rating:
+        data.append({
+            "name":i.Review,
+            "rating":i.Rating,
+            "restaurant":i.restaurant.id,
+            
+
+        })
+    return JsonResponse(data,safe=False)
+
+
+#DELETE REVIEW
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_product_review(request):
+    item_id = request.POST.get('item_id')
+    try:
+        review=Review.objects.get(user=request.user, id=item_id)
+    except Review.DoesNotExist:
+        return JsonResponse({"error": "Review not found"})
+
+    review.delete()
+    return JsonResponse({"message": "Review deleted successfully"})
+
+#DELETE RESTAURANT REVIEW
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_restauarnt_review(request):
+    restauarant_id = request.POST.get('restauarant_id')
+    try:
+        review=RestaurantReview.objects.get(user=request.user, id=restauarant_id)
+    except RestaurantReview.DoesNotExist:
+        return JsonResponse({"error": "Review not found"})
+
+    review.delete()
+    return JsonResponse({"message": "Review deleted successfully"})
+
+            

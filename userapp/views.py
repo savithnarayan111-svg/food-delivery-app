@@ -7,12 +7,17 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from adminapp.models import Product, Restaurant
-from userapp.models import Cart, CartItem, Profile, Review, Wishlist, WishlistItem
+from userapp.models import Cart, CartItem, Profile, RestaurantReview, Review, Wishlist, WishlistItem
 from django.contrib.auth.models import User
 from django.contrib.auth import login
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.decorators import permission_classes,api_view
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q
+from django.db.models import Avg
+
 
 
 
@@ -136,6 +141,42 @@ def user_login(request):
 
  #DJANGO JWT  AUTHENTICATION
 
+#........................................PROFILE.......................................
+
+#VIEW PROFILE
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_profile(request):
+    user=request.user
+    profile = user.profile
+    phone = profile.Phone
+    address = profile.Address
+    zipcode = profile.Zipcode
+
+    data = {
+        "fname": user.first_name,
+        "lname": user.last_name,
+        "mail": user.email,
+        "phone": phone,
+        "address": address,
+        "zipcode": zipcode,
+    }
+
+    return JsonResponse(data)
+ 
+#UPDATE PROFILE
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_profile(request):
+    user=request.user
+    profile = user.profile
+    user.first_name = request.data.get("fname", user.first_name)
+    user.save()
+    profile.Address = request.data.get("address", profile.Address)
+    profile.save()
+    return JsonResponse({"message":"updated succesfully"})
 
 
 
@@ -161,9 +202,7 @@ def token_login(request):
                )
 
 
-from rest_framework.decorators import permission_classes,api_view
 
-from rest_framework.permissions import IsAuthenticated
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -172,7 +211,10 @@ def buy_food(request):
                            "user": request.user.username})
 
 
+#.......................................CART..........................................
+
 #ADD TO CART
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  #This means only logged-in users can access this API.
 def add_to_cart(request):
@@ -193,6 +235,88 @@ def add_to_cart(request):
         })
 
 
+#VIEW CART
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_cart(request):
+    cart=Cart.objects.get(user=request.user)
+    views=CartItem.objects.filter(cart=cart)
+    data=[]
+
+    for i in views:
+            data.append({
+            "product_name": i.product.Name,
+            "price": i.product.price,
+            "quantity":i.quantity
+        }) 
+    return JsonResponse(data, safe=False)
+      
+
+#REMOVE SINGLE ITEM
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def remove_cart(request):
+    item_id=request.POST.get('item_id')
+    cart=CartItem.objects.get(id=item_id)
+    cart.delete()
+    return JsonResponse({"message":"deleted successfully"})
+
+#DELETE CART ITEMS
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_cart(request):
+    cart=Cart.objects.get(user=request.user)
+    newcart=CartItem.objects.filter(cart=cart)
+    newcart.delete()
+    return JsonResponse({"message":"deleted successfully"})
+
+#UPDATE ITEM
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_quantity(request):
+    item_id = request.data.get('item_id')
+    new_quantity = request.data.get('quantity')
+    cart_item = CartItem.objects.get(cart__user=request.user, id=item_id)
+    cart_item.quantity = int(new_quantity)
+    cart_item.save() 
+
+    return JsonResponse({"message": "Updated successfully"})
+
+#WISHLIST_TO_CART
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def wishlist_to_cart(request):
+
+    item_id=request.POST.get('item_id')
+    try:
+        wishlist=WishlistItem.objects.get(product_id=item_id,wishlist__user=request.user)
+    except WishlistItem.DoesNotExist:
+        return JsonResponse({"message":"Does not exist"})
+
+    cartitem,created=CartItem.objects.get_or_create(
+        cart__user=request.user,
+        product=wishlist.product
+    )
+
+    wishlist.delete()
+
+    return JsonResponse({
+        "message": "Item moved to cart successfully",
+        "product": cartitem.product.Name
+    })
+
+
+
+
+
+
+#...................................................WISHLIST...........................................
+
 #WISHLIST
 
 @api_view(['POST'])
@@ -205,25 +329,49 @@ def add_to_wishlist(request):
           product=data,
           wishlist=wishlist
      )
+     if not created:
+         return JsonResponse({"message": "Product already in wishlist"})
      return JsonResponse({
           "message":"Item added to wishlist",
-          "product":data.Name
+          "product":data.Name 
      })
 
-#ADD REVIEW
-# @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-# def add_review(request):
-#      rrating=request.POST.get("rating")
-#      rreview=request.POST.get("review")
-#      Review.objects.create(
-#           Rating=rrating,
-#           Review=rreview
-#                              )
-#      return JsonResponse({"message": "Success"}, status=201)# 
+#VIEW WISHLIST
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_wishlist(request):
+    wishlist = Wishlist.objects.get(user=request.user)
+    items = WishlistItem.objects.filter(wishlist=wishlist)
+
+    data = []
+    for i in items:
+        data.append({
+            "product_name": i.product.Name,
+            "price": i.product.price
+        })
+
+    return JsonResponse(data, safe=False)
+
+#DELETE WISHLIST
 
 
-#..................................REVIEW...........................
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_wishlist(request):
+    item_id = request.data.get('item_id')
+    try:
+        wishlist=WishlistItem.objects.get(id=item_id)#user=request.user → review must belong to the currently logged-in user  #id = item_id
+    except WishlistItem.DoesNotExist:
+        return JsonResponse({"error": "Not found"})
+    wishlist.delete()
+    return JsonResponse({"message": "Wishlist deleted successfully"})
+
+
+
+
+
+#.....................................................REVIEW..........................................
 
 
 
@@ -236,7 +384,6 @@ def add_review(request):
     rrating = request.data.get("rating")
     rreview = request.data.get("review")
     product_id = request.data.get("product_id")
-
     # if not product_id:
     #     return JsonResponse({"error": "product_id is required"}, status=400)
 
@@ -249,7 +396,8 @@ def add_review(request):
         user=request.user,
         product=product,
         Rating=int(rrating),
-        Review=rreview
+        Review=rreview,
+
     )
 
     return JsonResponse({"message": "Success"}, status=201)
@@ -261,7 +409,7 @@ def add_review(request):
 def delete_review(request):
     item_id = request.POST.get('item_id')
     try:
-        review=Review.objects.get(user=request.user, product_id=item_id)#user=request.user → review must belong to the currently logged-in user.#product_id=item_id → review must be for the given product ID.
+        review=Review.objects.get(user=request.user, id=item_id)#user=request.user → review must belong to the currently logged-in user  #id = item_id
     except Review.DoesNotExist:
         return JsonResponse({"error": "Review not found"})
 
@@ -271,89 +419,194 @@ def delete_review(request):
 
 # UPDATE REVIEW
 
-
-@api_view(['GET']) 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def update_review(request):
     item_id = request.POST.get('item_id')
+    # updated_review = request.data.get('review')
     try:
-        review=Review.objects.get(user=request.user, product_id=item_id)#user=request.user → review must belong to the currently logged-in user.#product_id=item_id → review must be for the given product ID.
+        review=Review.objects.get(user=request.user, id=item_id)#user=request.user → review must belong to the currently logged-in user.#product_id=item_id → review must be for the given product ID.
     except Review.DoesNotExist:
         return JsonResponse({"error": "Review not found"})
-     
 
-     
-     
+    review.Review = request.data.get('review', review.Review)
+    review.save()
+    return JsonResponse({"message": "Updated successfully"})
+    
+
+#VIEW REVIEW
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_review(request,id):
+    reviews=Review.objects.filter(product_id=id)
+    data=[]
+    for i in reviews:
+        data.append({
+            "rating":i.Rating,
+            "review":i.Review,
+            "user":i.user.username
+        })
+    return JsonResponse(data,safe=False)
+
+#ADD RESTAURANT REVIEW
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_restaurant_review(request):
+
+    item_id=request.POST.get('restaurant_id')
+    rreview=request.POST.get('review')
+    rrating=request.POST.get('rating')
+
+    try:
+        restaurant=Restaurant.objects.get(id=item_id)
+    except Restaurant.DoesNotExist:
+        return JsonResponse({"message":"Restaurant not found"})
+    
+    RestaurantReview.objects.create(
+        user=request.user,
+        restaurant=restaurant,
+        Rating=int(rrating),
+        Review=rreview,
+    )
+    return JsonResponse({"message": "Success"}, status=201)
+
+#VIEW RESTAURANT REVIEW
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def view_restaurant_review(request,id):
+    reviews=RestaurantReview.objects.filter(restaurant_id=id)
+    data=[]
+    for i in reviews:
+        data.append({
+            "rating":i.Rating,
+            "review":i.Review,
+            "user":i.user.username
+        })
+    return JsonResponse(data,safe=False)
+
+#VIEW AVERAGE RATING
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def average_rest_rating(request,id):
+    average=RestaurantReview.objects.filter(restaurant_id=id).aggregate(avg=Avg('Rating'))['avg']
+
+    return JsonResponse({
+        "restaurant_id": id,
+        "average_rating": average
+    })
+
+#....................................................SEARCH...............................................
+
+#SEARCH RESTAURANT
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_restaurants(request):
+    query=request.GET.get('q')
+
+    restaurants=Restaurant.objects.filter(
+        Q(Location__icontains=query)|
+        Q(Restaurant_name__icontains=query)
+    )
+    if not  restaurants:
+        return JsonResponse({"message":"Restaurant not found"})
+    data=[]
+    for i in restaurants:
+        data.append({
+            "location":i.Location,
+            "name":i.Restaurant_name
+        })
+        return JsonResponse(data,safe=False)
+    
+
+#SEARCH PRODUCT
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def search_product(request):
+    query=request.GET.get('q')
+    restaurant_id=request.GET.get('r')
+
+    try:
+        restaurant=Restaurant.objects.get(id=restaurant_id)
+    except Restaurant.DoesNotExist:
+        return JsonResponse({"message":"Restaurant not found"})
+    
+    # product=Product.objects.filter(Restaurant=restaurant).filter(
+
+    #     Q(Name__icontains=query)
+    # )
+    product = Product.objects.filter(
+        Restaurant=restaurant,
+         Name__icontains=query ,
+        
+    )
+    if not product:
+        return JsonResponse({"message":"Product not found"})
+    data=[]
+    for i in product:
+        data.append({
+            "name":i.Name,
+            "price":i.price
+
+        })
+    return JsonResponse(data,safe=False)
+
+#SEARCH PRODUCT_LIST
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def search_product_list(request):
+    query=request.GET.get('q')
+    search=Product.objects.filter
 
 
+#>......................................FILTER..................................
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def filtering_Price(request):
+    restaurant_id=request.GET.get('r')
+    min=request.GET.get('min')
+    max=request.GET.get('max')
+    try:
+        restaurant=Restaurant.objects.get(id=restaurant_id)
+    except Restaurant.DoesNotExist:
+        return JsonResponse({"message":"Restaurant not found"})
+    product = Product.objects.filter(Restaurant=restaurant)
+    # products=product
+    if min:
+        products=product.filter(price__gte=min)
+    if max:
+        products=product.filter(price__lte=max)
+    if not product:
+        return JsonResponse({"message":"Product not found"})
+    data=[]
+    for i in products:
+        data.append({
+            "name":i.Name,  
+            "price":i.price
+ 
+        })
+    return JsonResponse(data,safe=False)
 
 
+#SORT RESTAURANT
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def sort_restaurant(request):
+    sort=request.GET.get('sort','Restaurant_name')
+    restaurants=Restaurant.objects.all().order_by(sort)
+    data=[]
+    for i in restaurants:
+        data.append({
+            "name":i.Restaurant_name
+        })
+    return JsonResponse(data,safe=False)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-
-# def add_to_cart(request):
-#     item_id = request.POST.get('id')
-#     quantity = int(request.POST.get('quantity', 1))
-
-#     product = get_object_or_404(Product, id=item_id)
-
-#     # get or create cart for logged-in user
-#     cart, created = Cart.objects.get_or_create(user=request.user)
-
-#     # get or create cart item
-#     cart_item, created = CartItem.objects.get_or_create(
-#         product=product,
-#         cart=cart,
-#         defaults={'quantity': quantity}
-#     )
-
-#     # if already exists → increase quantity
-#     if not created:
-#         cart_item.quantity += quantity
-#         cart_item.save()
-
-#     return JsonResponse({
-#         "message": "Product added to cart",
-#         "product": product.Name,
-#         "quantity": cart_item.quantity
-#     })
